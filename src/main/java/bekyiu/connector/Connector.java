@@ -1,5 +1,6 @@
 package bekyiu.connector;
 
+import bekyiu.processor.ServletProcessor;
 import bekyiu.processor.StaticProcessor;
 import bekyiu.utils.ConnectorUtils;
 
@@ -50,9 +51,17 @@ public class Connector implements Runnable
                 // 构造响应
                 Response resp = new Response(output);
                 resp.setReq(req);
-                // 发送
-                StaticProcessor staticProcessor = new StaticProcessor();
-                staticProcessor.process(req, resp);
+                // 处理
+                if(req.getUri().startsWith("/servlet/"))
+                {
+                    ServletProcessor servletProcessor = new ServletProcessor();
+                    servletProcessor.process(req, resp);
+                }
+                else
+                {
+                    StaticProcessor staticProcessor = new StaticProcessor();
+                    staticProcessor.process(req, resp);
+                }
 
                 ConnectorUtils.close(socket);
             }
