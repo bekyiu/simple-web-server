@@ -1,6 +1,8 @@
 package bekyiu.utils;
 
+import java.io.Closeable;
 import java.io.File;
+import java.io.IOException;
 
 public class ConnectorUtils
 {
@@ -21,5 +23,20 @@ public class ConnectorUtils
                 .append(CARRIAGE).append(NEWLINE);
 
         return sb.toString();
+    }
+
+    public static void close(Closeable c)
+    {
+        if(c != null)
+        {
+            try
+            {
+                c.close();
+            }
+            catch (IOException e)
+            {
+                e.printStackTrace();
+            }
+        }
     }
 }
