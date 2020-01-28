@@ -7,13 +7,17 @@ import bekyiu.utils.ConnectorUtils;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.channels.*;
+import java.util.Set;
 
 public class Connector implements Runnable
 {
     private static final int DEFAULT_PORT = 8888;
-    private ServerSocket server;
+    private ServerSocketChannel serverChannel;
+    private Selector selector;
     private int port;
 
     public Connector()
@@ -37,33 +41,21 @@ public class Connector implements Runnable
     {
         try
         {
-            server = new ServerSocket(port);
+            serverChannel = ServerSocketChannel.open();
+            serverChannel.bind(new InetSocketAddress(port));
+            serverChannel.configureBlocking(false);
+            selector = Selector.open();
+            serverChannel.register(selector, SelectionKey.OP_ACCEPT);
             System.out.println("server on... port: " + port);
-            while (true)
+            while(true)
             {
-                Socket socket = server.accept();
-                InputStream input = socket.getInputStream();
-                OutputStream output = socket.getOutputStream();
-
-                // 构造请求
-                Request req = new Request(input);
-                req.parse();
-                // 构造响应
-                Response resp = new Response(output);
-                resp.setReq(req);
-                // 处理
-                if(req.getUri().startsWith("/servlet/"))
+                selector.select();
+                Set<SelectionKey> selectionKeys = selector.selectedKeys();
+                for (SelectionKey selectionKey : selectionKeys)
                 {
-                    ServletProcessor servletProcessor = new ServletProcessor();
-                    servletProcessor.process(req, resp);
+                    handle(selectionKey);
                 }
-                else
-                {
-                    StaticProcessor staticProcessor = new StaticProcessor();
-                    staticProcessor.process(req, resp);
-                }
-
-                ConnectorUtils.close(socket);
+                selectionKeys.clear();
             }
         }
         catch (IOException e)
@@ -72,7 +64,51 @@ public class Connector implements Runnable
         }
         finally
         {
-            ConnectorUtils.close(server);
+            ConnectorUtils.close(selector);
+        }
+    }
+
+    private void handle(SelectionKey selectionKey) throws IOException
+    {
+        if(selectionKey.isAcceptable())
+        {
+            ServerSocketChannel serverSocketChannel = (ServerSocketChannel) selectionKey.channel();
+            SocketChannel socketChannel = serverSocketChannel.accept();
+            socketChannel.configureBlocking(false);
+            socketChannel.register(selector, SelectionKey.OP_READ);
+        }
+        else if(selectionKey.isReadable())
+        {
+            // 此时socketChannel是非阻塞式的
+            SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
+            // 取消 key所属的通道的响应事件的监听
+            selectionKey.cancel();
+            // 恢复为阻塞后 才能操作input/output stream
+            socketChannel.configureBlocking(true);
+
+            Socket socket = socketChannel.socket();
+            InputStream input = socket.getInputStream();
+            OutputStream output = socket.getOutputStream();
+
+            // 构造请求
+            Request req = new Request(input);
+            req.parse();
+            // 构造响应
+            Response resp = new Response(output);
+            resp.setReq(req);
+            // 处理
+            if (req.getUri().startsWith("/servlet/"))
+            {
+                ServletProcessor servletProcessor = new ServletProcessor();
+                servletProcessor.process(req, resp);
+            }
+            else
+            {
+                StaticProcessor staticProcessor = new StaticProcessor();
+                staticProcessor.process(req, resp);
+            }
+            ConnectorUtils.close(socketChannel);
+
         }
     }
 }
